@@ -38,6 +38,9 @@ def load(path: str | Path) -> dict:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     common = yaml.safe_load(COMMON.read_text(encoding="utf-8"))
     data["정의"] = {**common["정의"], **(data.get("정의") or {})}
+    data["규칙"] = common.get("규칙", []) + (data.get("규칙") or [])
+    data["유형"] = {**common.get("유형", {}), **(data.get("유형") or {})}
+    data["버팀값"] = {**common.get("버팀값", {}), **(data.get("버팀값") or {})}
     return data
 
 
