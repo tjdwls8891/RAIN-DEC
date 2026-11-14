@@ -58,7 +58,8 @@ def main():
     print(f"== {scn['이름']} ==  {status_board(led, pc)}")
 
     def press(card):
-        print(f"\n  ┌ 판정: {card['일']}  |  {card['능력']}  |  {card['난이도']}, 방법 {card['방법']}  |  기준 {card['기준']} (둘의 합이 이보다 작아야 한다)")
+        parts = " ".join(f"{'+' if v >= 0 else '−'}{abs(v)}({n})" if i else f"{v}({n})" for i, (n, v) in enumerate(card["내역"]))
+        print(f"\n  ┌ 판정: {card['일']}  |  기준 {card['기준']} = {parts}  (둘의 합이 기준보다 작아야 한다)")
         print(f"  │ 되면: {card['되면']}\n  │ 탈이 나면: {card['탈이 나면']}")
         if not a.bench and not a.fake:
             input("  └ [굴린다 ⏎] ")

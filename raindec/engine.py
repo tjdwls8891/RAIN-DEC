@@ -29,9 +29,12 @@ MINUTES = {"살핀다": 1, "뒤진다": 3, "간다": 1, "연다": 1, "닫는다"
            "말한다": 1, "속인다": 2, "설득한다": 3, "위협한다": 1, "공격한다": 1, "기다린다": 10, "그밖": 3}
 NONE, UNLISTED = "없음", "목록에_없는_것"
 
-DIFF = {"매우 쉬움": 90, "쉬움": 75, "보통": 60, "어려움": 45, "매우 어려움": 32, "거의 불가능": 20}
-METHOD = {"매우 나쁨": -10, "나쁨": -5, "무난함": 0, "좋음": 5, "매우 좋음": 10}
-DEGREES = [(25, "큰 성공"), (10, "성공"), (0, "아슬한 성공"), (-10, "아슬한 실패"), (-25, "실패"), (-999, "큰 실패")]
+# 판정의 값. docs/38-판정의-값.md
+BASE = 52                                   # 능력 10, 보통 난이도, 무난한 방법이면 51%
+DIFF = {"쉬움": 20, "약간 쉬움": 10, "보통": 0, "어려움": -15, "매우 어려움": -30, "극도로 어려움": -40}
+METHOD = {"매우 나쁨": -12, "나쁨": -6, "무난함": 0, "좋음": 6, "매우 좋음": 12}
+GUARD = {"작음": -5, "보통": -10, "큼": -20, "매우 큼": -30}     # 상대가 지키려는 것의 무게
+DEGREES = [(30, "큰 성공"), (10, "성공"), (1, "아슬한 성공"), (-9, "아슬한 실패"), (-29, "실패"), (-999, "큰 실패")]
 STAT = {"속인다": "통찰", "설득한다": "통찰", "위협한다": "근력", "공격한다": "민첩", "그밖": "민첩"}
 ATT_YES = ["따른다", "마지못해 따른다"]
 ATT_NO = ["얼버무린다", "되묻는다", "거절한다", "막아선다", "물러난다", "위협한다", "무시한다"]
@@ -389,21 +392,42 @@ class Turn:
             return {"key": key, "text": text, "schema": {"type": "OBJECT", "required": list(props), "properties": props},
                     "default": {"태도": atts[-1], "말": "", "하는_일": deeds[0]}}
 
+        # 해석은 진실을 모르므로 그 말이 거짓인지, 무거운 요구인지 가릴 수 없다. 요구가 있으면 판단에 묻는다.
         qs = []
-        if verb in SOCIAL:
-            qs += [{"key": "난이도", "text": "이 일의 난이도 (상대가 지키려는 것에 닿으면 '어려움' 이상)", "schema": {"type": "STRING", "enum": list(DIFF)}, "default": "보통"},
+        guards = {f.obj: f.value for f in w.facts.values() if f.attr == "지킨다" and f.subj == npc}
+        maybe = verb in SOCIAL or bool(guards)          # 묻는 말도 요구다. 해석이 적은 '요구'에 기대지 않는다
+        if maybe:
+            # 사람을 상대로 한 난이도는 판단이 수로 정하지 않는다. 저작된 "지키는 것" 가운데 무엇에 닿는지만 고른다.
+            heaviest = min(guards, key=lambda g: GUARD[guards[g]]) if guards else NONE
+            qs += [{"key": "닿는것", "text": f"PC의 말(묻는 것, 시키는 것)을 들어주려면 {name}이(가) 지키려는 것 가운데 무엇을 내놓아야 하는가. 여럿이면 가장 무거운 것. 아무것도 내놓지 않아도 되면 '{NONE}'",
+                    "schema": {"type": "STRING", "enum": list(guards) + [NONE]}, "default": heaviest},
                    {"key": "방법", "text": "PC가 택한 방식이 이 일에 얼마나 맞는가", "schema": {"type": "STRING", "enum": list(METHOD)}, "default": "무난함"},
                    react("성공시", f"판정이 성공했을 때 {name}의 반응. 요구된 것만 한다", ATT_YES, True),
                    react("실패시", f"판정이 실패했을 때 {name}의 반응", ATT_NO, False)]
-        else:
-            qs.append(react("반응", f"{name}의 반응", ATT_YES + ATT_NO, True))
+            if verb == "말한다":
+                qs.append({"key": "말의_참거짓", "text": "PC의 말이 참말인가, 거짓이거나 꾸민 것인가",
+                           "schema": {"type": "STRING", "enum": ["참말", "거짓"]}, "default": "참말"})
+        if verb == "말한다":
+            qs.append(react("반응", f"(지키려는 것에 닿지 않아 판정이 없을 때) {name}의 반응", ATT_YES + ATT_NO, True))
         for o in others:
             qs.append(react(f"곁:{o}", f"이것을 보고 들은 {self.L(o)}의 반응", ATT_WATCH, False))
         ans = self.judge(desc, qs)
 
         r = ans.get("반응")
-        if verb in SOCIAL:
-            check = self.roll(verb, ans["난이도"], ans["방법"], opponent=npc,
+        # 굴리는 경우: 속이려 하거나, 밀어붙여 시키려 할 때. 걸린 것이 없으면 굴리지 않는다.
+        # 그냥 물었을 뿐인데 지키려는 것에 닿으면, 굴리지 않고 인물이 지킨다(내놓게 하려면 밀어붙여야 한다).
+        guarded = maybe and ans["닿는것"] != NONE
+        rolled = verb in SOCIAL or (guarded and ans.get("말의_참거짓") == "거짓")
+        if guarded and not rolled:
+            r = ans["실패시"]
+        if rolled:
+            if verb == "말한다":
+                verb = "속인다" if ans["말의_참거짓"] == "거짓" else "설득한다"
+            hit = ans["닿는것"]
+            wit = w.get("통찰", npc) if isinstance(w.get("통찰", npc), int) else 10
+            parts = [(f"상대의 통찰 {wit}", -2 * (wit - 10)),
+                     ("상대가 지키려는 것" + (f" ({guards[hit]})" if hit != NONE else " (닿지 않음)"), GUARD[guards[hit]] if hit != NONE else 0)]
+            check = self.roll(verb, parts, ans["방법"],
                               stake_yes=f"{name}이(가) 당신의 말을 받아들인다" + (f": {want}" if want else ""),
                               stake_no=f"{name}이(가) 받아들이지 않고, 당신을 보는 눈이 달라진다")
             r = ans["성공시"] if check["성공"] else ans["실패시"]
@@ -426,7 +450,7 @@ class Turn:
                 self.sensed.append(f"{self.L(o)}의 태도: {ro['태도']}." + (f" {self.L(o)}의 말: \"{clean(ro['말'])}\"" if ro.get("말") else ""))
             self.touched.add(o)
         stop = r["태도"] in STOPPING or any(ans[f"곁:{o}"]["태도"] in STOPPING for o in others)
-        return not stop and (verb not in SOCIAL or self.res.checks[-1]["성공"])
+        return not stop and (not rolled or self.res.checks[-1]["성공"])
 
     # ---- ③ 판단: 닫힌 물음 ----
     def judge(self, action: str, questions: list[dict]) -> dict:
@@ -447,16 +471,15 @@ class Turn:
         return ans
 
     # ---- ④ 판정 ----
-    def roll(self, verb: str, diff: str, method: str, opponent: str | None, stake_yes: str, stake_no: str) -> dict:
+    def roll(self, verb: str, difficulty: list[tuple[str, int]], method: str, stake_yes: str, stake_no: str) -> dict:
+        """기준값 = 52 + 능력 + (숙련 + 장비 + 상태: 아직 없음) + 방법 + 난이도. 굴린 합이 기준값보다 작으면 성공."""
         w = self.work
         stat = STAT.get(verb, "민첩")
         mine = w.get(stat, self.pc) if isinstance(w.get(stat, self.pc), int) else 10
-        target = DIFF[diff] + (mine - 10) * 2 + METHOD[method]
-        if opponent and isinstance(w.get("통찰", opponent), int):
-            target -= (w.get("통찰", opponent) - 10) * 2
+        parts = [("기본", BASE), (f"{stat} {mine}", 2 * (mine - 10)), (f"방법: {method}", METHOD[method])] + difficulty
+        target = sum(v for _, v in parts)
         stake_yes, stake_no = josa(stake_yes), josa(stake_no)
-        card = {"일": verb, "능력": f"{stat} {mine}", "난이도": diff, "방법": method, "기준": target,
-                "되면": stake_yes, "탈이 나면": stake_no}
+        card = {"일": verb, "내역": [(josa(n), v) for n, v in parts], "기준": target, "되면": stake_yes, "탈이 나면": stake_no}
         self.res.timing.setdefault("버튼", time.monotonic() - self.t0)
         if self.press:
             self.press(card)                           # 플레이어가 누른다
