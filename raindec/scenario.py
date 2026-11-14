@@ -97,7 +97,7 @@ def in_plain_sight(led: Ledger, ent: str, who: str) -> bool:
             if parent != who and how not in SHOWN_ON_PERSON:
                 return False
         elif not (led.has_tag(parent, "장소") or led.has_tag(parent, "지점")):
-            if how == "안에":                      # 서랍 속, 술독 속
+            if how == "안에" and led.get("열림", parent) != "참":   # 닫힌 서랍 속, 술독 속
                 return False
         cur = parent
 
