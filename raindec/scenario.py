@@ -41,6 +41,9 @@ def load(path: str | Path) -> dict:
     data["규칙"] = common.get("규칙", []) + (data.get("규칙") or [])
     data["유형"] = {**common.get("유형", {}), **(data.get("유형") or {})}
     data["버팀값"] = {**common.get("버팀값", {}), **(data.get("버팀값") or {})}
+    data["시간등급"] = data.get("시간등급") or common.get("시간등급", {})
+    data["맞섬"] = {**common.get("맞섬", {}), **(data.get("맞섬") or {})}
+    data["가이드"] = {"사람 일반": common.get("가이드", ""), "세계관": data.get("가이드", "")}
     return data
 
 
@@ -83,7 +86,14 @@ def open_session(scn: dict, seed: int | None = None) -> tuple[Ledger, dict]:
     return led, chosen
 
 
-SHOWN_ON_PERSON = ("손에", "착용", "허리에", "등에")     # 남이 지닌 것 중 겉으로 보이는 방식
+# 위치의 방식은 자연어다("삿갓 쓴 사내의 맞은편에 앉아", "손에 쥐고 목에 겨눈 채"). 목록에서 고르지 않는다.
+# 코드가 방식의 글에서 읽어야 하는 것은 둘뿐이다: 무언가의 속에 있는가, 지닌 이가 감춰 지니고 있는가.
+def is_inside(how: str) -> bool:
+    return any(k in (how or "") for k in ("안", "속"))
+
+
+def is_concealed(how: str) -> bool:
+    return any(k in (how or "") for k in ("품", "속", "안", "주머니", "소매", "숨", "감춰", "감추"))
 
 
 def in_plain_sight(led: Ledger, ent: str, who: str) -> bool:
@@ -97,10 +107,10 @@ def in_plain_sight(led: Ledger, ent: str, who: str) -> bool:
             return True
         parent, how = loc
         if led.has_tag(parent, "인물"):
-            if parent != who and how not in SHOWN_ON_PERSON:
+            if parent != who and is_concealed(how):
                 return False
         elif not (led.has_tag(parent, "장소") or led.has_tag(parent, "지점")):
-            if how == "안에" and led.get("열림", parent) != "참":   # 닫힌 서랍 속, 술독 속
+            if is_inside(how) and led.get("열림", parent) != "참":   # 닫힌 서랍 속, 술독 속
                 return False
         cur = parent
 

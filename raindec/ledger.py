@@ -71,7 +71,8 @@ class LedgerError(Exception):
 
 class Ledger:
     def __init__(self, definitions: dict[str, dict] | None = None):
-        self.definitions: dict[str, dict] = definitions or {}
+        self.base_definitions: dict[str, dict] = definitions or {}
+        self.definitions: dict[str, dict] = dict(self.base_definitions)
         self.entities: dict[str, set[str]] = {}
         self.facts: dict[tuple, Fact] = {}
         self.views: dict[str, dict[tuple, Belief]] = {}
@@ -81,8 +82,15 @@ class Ledger:
     # ---- 사건 쌓기 ---------------------------------------------------
     def append(self, event: Event) -> int:
         """사건을 기록하고 그 변화를 반영한다. 검사에 실패하면 아무것도 바뀌지 않는다."""
-        for ch in event.changes:
-            self.check(ch)
+        saved = dict(self.definitions)
+        try:
+            for ch in event.changes:
+                self.check(ch)
+                if ch.get("op") == "define":         # 같은 사건의 뒤따르는 변화가 새 항목을 쓸 수 있게
+                    self.definitions.setdefault(ch["attr"], ch["definition"])
+        except LedgerError:
+            self.definitions = saved
+            raise
         number = len(self.events)
         self.events.append(event)
         self.now = max(self.now, event.time)
@@ -93,7 +101,7 @@ class Ledger:
     @classmethod
     def replay(cls, definitions: dict, events: list[Event], upto: int | None = None) -> "Ledger":
         """사건 기록에서 장부를 다시 쌓는다. upto를 주면 그 번호까지만 쌓는다(되감기)."""
-        led = cls(definitions)
+        led = cls(dict(definitions))         # 세션 중에 채운 정의가 원본 사전을 건드리지 않게
         for ev in events[: None if upto is None else upto + 1]:
             led.append(ev)
         return led
@@ -103,6 +111,9 @@ class Ledger:
         if op == "entity":
             if not ch.get("id"):
                 raise LedgerError("개체에 식별자가 없다")
+        elif op == "define":
+            if not ch.get("attr") or not isinstance(ch.get("definition"), dict):
+                raise LedgerError("정의를 읽을 수 없다")
         elif op in ("set", "unset", "know"):
             attr = ch.get("attr")
             if attr not in self.definitions:
@@ -120,6 +131,8 @@ class Ledger:
         op = ch["op"]
         if op == "entity":
             self.entities.setdefault(ch["id"], set()).update(ch.get("tags", []))
+        elif op == "define":                 # 사전에 없던 항목을 채웠다. 사건으로 남으므로 되감기와 편입 검토가 된다
+            self.definitions.setdefault(ch["attr"], ch["definition"])
         elif op == "set":
             self.entities.setdefault(ch["subj"], set())
             f = Fact(ch["attr"], ch["subj"], ch.get("obj"), ch["value"], time, number)
@@ -157,6 +170,9 @@ class Ledger:
         proto = self.facts.get((PROTO, subj, None))
         if proto:
             out.append(proto.value)          # 실물 ← 원형: 언제나 계승
+        mat = self.facts.get(("재질", subj, None))
+        if mat and mat.value in self.entities and mat.value != subj:
+            out.append(mat.value)            # 물건 ← 재질: 재질의 성질을 물려받는다
         if definition.get("계승"):
             loc = self.where(subj)
             if loc and self.has_tag(subj, PLACE):

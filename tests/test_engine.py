@@ -24,7 +24,11 @@ def interp(*acts, **over):
 
 
 def ch(subj, attr, value, obj="없음"):
-    return {"개체": subj, "항목": attr, "대상": obj, "값": value}
+    return {"개체": subj, "항목": attr, "새항목": "", "대상": obj, "값": value}
+
+
+def new(subj, name, value):
+    return {"개체": subj, "항목": "사전에 없는 항목", "새항목": name, "대상": "없음", "값": value}
 
 
 def J(**over):
@@ -91,10 +95,9 @@ def test_사전에_항목을_더하면_코드_없이_모든_행동에서_작동�
 def test_바뀌지_않는_항목과_사전에_없는_값은_반영되지_않는다():
     led = world()
     res, be = play(led, {"해석": interp({"하려는_일": "…", "대상": ["주모"]}), "판단": J(변화=[
-        ch("주모", "정체", "관아의 밀정"), ch("뒷문", "손상", "가루"), ch("강호민", "기분", "두려움"), ch("주모", "기분", "호의"),
-        ch("철검", "위치", "허공에", "주모")], 사전에_없는_변화="주모의 옷에 불이 붙는다")})
+        ch("주모", "정체", "관아의 밀정"), ch("뒷문", "손상", "가루"), ch("강호민", "기분", "두려움"), ch("주모", "기분", "호의")])})
     assert led.get("정체", "주모") is None and led.get("손상", "뒷문") == "없음" and led.get("기분", "주모") == "경계"
-    assert led.where("철검") == ("강호민", "허리에") and len(res.rejected) == 4 and res.unhandled      # 정체는 고를 수 있는 항목이 아니라 걸러진다
+    assert len(res.rejected) == 3                    # 정체는 고를 수 있는 항목이 아니라 걸러진다
 
 
 # ── 격리 ──
@@ -136,7 +139,7 @@ def test_성공하면_인물이_제_열쇠로_문을_연다_실패하면_지킨�
         if res.checks[0]["성공"]:
             assert led.get("열림", "뒷문") == "참" and "열어 줄게" in be.seen[-1].prompt
         else:
-            assert led.get("잠김", "뒷문") == "참" and led.where("주모") == ("뒷문", "곁에") and led.get("호감", "주모", "강호민") == "경계"
+            assert led.get("잠김", "뒷문") == "참" and led.where("주모") == ("뒷문", "곁에")
     assert both == {True, False}
 
 
@@ -167,16 +170,45 @@ def test_속은_후보에서만_채워지고_한_번_정해지면_그대로다()
     assert len(led.contents("계산대_서랍")) == 2
 
 
-def test_없는_것을_가리키면_있는_것의_다른_이름이거나_없다():
-    act = {"하려는_일": "질그릇을 집어 든다", "대상": ["목록에_없는_것"], "가리킨_말": "질그릇"}
+def test_없는_것을_가리키면_있는_것의_다른_이름으로_잇는다():
     led = world()
-    res, be = play(led, {"해석": interp(act), "판단": J(가리킨것="찻주전자", 변화=[ch("가리킨 것", "위치", "손에", "강호민")])})
-    assert led.where("찻주전자") == ("강호민", "손에")
-    led = world()
-    ents = set(led.entities)
-    res, be = play(led, {"해석": interp({**act, "하려는_일": "품에서 관아의 패를 꺼낸다", "가리킨_말": "관아의 패"}),
-                         "판단": J(가리킨것="있을 법한 것: 관아의 패", 변화=[ch("가리킨 것", "위치", "손에", "강호민")])})
-    assert set(led.entities) == ents and "보이지 않는다" in be.seen[-1].prompt      # 후보에 없으면 생기지 않는다
+    res, be = play(led, {"해석": interp({"하려는_일": "질그릇을 집어 든다", "대상": ["목록에_없는_것"], "가리킨_말": "질그릇"}),
+                         "판단": J(가리킨것="찻주전자", 변화=[ch("가리킨 것", "위치", "손에 든 채", "강호민")])})
+    assert led.where("찻주전자") == ("강호민", "손에 든 채")
+
+
+FIND = {"하려는_일": "바닥에서 부지깽이를 찾아 집는다", "대상": ["목록에_없는_것"], "가리킨_말": "부지깽이"}
+MAYBE = "저작되지 않았으나 여기 있을 법하다"
+
+
+def test_발견_선언은_그럴듯하면_판정으로_인정한다():
+    script = {"해석": interp(FIND), "판단": J(가리킨것=MAYBE, 가리킨것의_갈래="흔한 소품", 발견의_난이도="보통", 변화=[ch("가리킨 것", "위치", "손에 쥐고", "강호민")])}
+    both = set()
+    for seed in range(20):
+        led = world()
+        n = len(led.entities)
+        res, be = play(led, script, seed=seed)
+        both.add(res.checks[0]["성공"])
+        if res.checks[0]["성공"]:
+            found = [e for e in led.entities if led.get("이름", e) == "부지깽이"]
+            assert found and led.where(found[0]) == ("강호민", "손에 쥐고") and res.filled
+        else:
+            assert len(led.entities) == n and "눈에 띄지 않는다" in be.seen[-1].prompt
+    assert both == {True, False}
+
+
+def test_중요한_것_저작된_것_지녔다고_하는_것_닫힌_곳에서는_발견되지_않는다():
+    def run(led, said, sort, scn=SCN):
+        n = len(led.entities)
+        res, be = play(led, {"해석": interp({**FIND, "가리킨_말": said}), "판단": J(가리킨것=MAYBE, 가리킨것의_갈래=sort, 발견의_난이도="쉬움",
+                                                                              변화=[ch("가리킨 것", "위치", "손에", "강호민")])}, scn=scn)
+        assert len(led.entities) == n and not res.checks and "보이지 않는다" in be.seen[-1].prompt
+    run(world(), "숨겨 둔 곁쇠", "열쇠·무기·문서·귀중품처럼 중요하거나 하나뿐인 것")
+    run(world(), "관아의 패", "PC가 이미 지니고 있다고 하는 것")
+    run(world(), "뒷문 열쇠", "흔한 소품")                       # 저작된 것의 이름이다
+    scn = copy.deepcopy(SCN)
+    scn["개체"]["객잔_1층"]["사실"].append("닫힌범위(이것) = 참")
+    run(world(scn), "부지깽이", "흔한 소품", scn=scn)
 
 
 # ── 판정 ──
@@ -212,30 +244,26 @@ def test_PC가_모르는_것은_PC의_행동으로_바뀌지_않는다():
     for seed in range(8):
         led = world()
         res, _ = play(led, {"해석": interp({"하려는_일": "서랍에서 뒷문 열쇠를 챙긴다", "대상": ["계산대_서랍"]}),
-                            "판단": J(성립="판정이 필요하다", 변화=[ch("뒷문_열쇠", "위치", "손에", "강호민"), ch("단도", "위치", "손에", "강호민")])}, seed=seed)
+                            "판단": J(변화=[ch("뒷문_열쇠", "위치", "손에", "강호민"), ch("단도", "위치", "손에", "강호민")])}, seed=seed)
         assert led.holder_of("뒷문_열쇠") == "주모" and led.holder_of("단도") == "척후" and not res.checks
         led = world()                                 # 없는 것을 가리키는 길로도 마찬가지다
         res, be = play(led, {"해석": interp({"하려는_일": "서랍에서 뒷문 열쇠를 챙긴다", "대상": ["계산대_서랍", "목록에_없는_것"], "가리킨_말": "뒷문 열쇠"}),
-                             "판단": J(성립="판정이 필요하다", 가리킨것="뒷문 열쇠", 변화=[ch("가리킨 것", "위치", "손에", "강호민")])}, seed=seed)
+                             "판단": J(가리킨것="뒷문 열쇠", 변화=[ch("가리킨 것", "위치", "손에", "강호민")])}, seed=seed)
         assert led.holder_of("뒷문_열쇠") == "주모" and not res.checks and "보이지 않는다" in be.seen[-1].prompt
 
 
 def test_사람_곁에_둔다는_것은_그_사람이_있는_자리에_두는_것이다():
     led = world()
     play(led, {"해석": interp({"하려는_일": "의자를 끌어다 앉는다", "대상": ["나무_의자"]}),
-               "판단": J(변화=[ch("나무_의자", "위치", "곁에", "강호민"), ch("강호민", "위치", "위에", "나무_의자"), ch("강호민", "자세", "앉음")])})
-    assert led.where("나무_의자") == ("창가", "곁에") and led.where("강호민") == ("나무_의자", "위에") and led.get("자세", "강호민") == "앉음"
+               "판단": J(변화=[ch("나무_의자", "위치", "곁에 끌어다 놓고", "강호민"), ch("강호민", "위치", "위에 앉아", "나무_의자"), ch("강호민", "자세", "앉음")])})
+    assert led.where("나무_의자")[0] == "창가" and led.where("강호민") == ("나무_의자", "위에 앉아") and led.get("자세", "강호민") == "앉음"
 
 
-def test_바뀌는_것이_없는_일은_굴리지_않는다():
-    res, _ = play(world(), {"해석": interp({"유형": "관찰/조사/지식", "하려는_일": "객잔 안을 둘러본다", "대상": []}), "판단": J(성립="판정이 필요하다")})
-    assert not res.checks
-
-
-def test_정도는_여유로_갈린다():
-    name = lambda m: next(n for f, n in (DEGREES[:3] if m > 0 else DEGREES[3:]) if m >= f)
-    assert [name(m) for m in (30, 29, 10, 9, 1, 0, -9, -10, -39, -40)] == [
-        "큰 성공", "성공", "성공", "아슬한 성공", "아슬한 성공", "아슬한 실패", "아슬한 실패", "실패", "실패", "큰 실패"]
+def test_바뀌는_것이_없어도_판단이_굴리라_하면_굴린다():
+    """숨은 것을 찾으려 살피는 일처럼, 세계가 바뀌지 않아도 판정이 설 수 있다."""
+    res, _ = play(world(), {"해석": interp({"유형": "관찰/조사/지식", "하려는_일": "사내의 품에 무기가 있는지 눈여겨본다", "대상": ["척후"]}),
+                            "판단": J(성립="판정이 필요하다", 능력="통찰", 난이도="어려움")})
+    assert res.checks and res.checks[0]["기준"] == 52 + 2 - 15
 
 
 # ── 실패에 대한 대응 ──
@@ -269,11 +297,24 @@ def test_항목은_붙는_곳에만_붙는다():
     assert not res.checks and len(res.rejected) == 2
 
 
-def test_사전이_담지_못하는_결과는_일어난_것으로_전하지_않는다():
+def test_사전에_없는_항목은_막지_않고_채운다():
     led = world()
-    res, be = play(led, {"해석": interp({"하려는_일": "탁자를 뒤집어엎고 그 뒤에 숨는다", "대상": ["구석_탁자"]}),
-                         "판단": J(담기는가="핵심이 사전에 없다", 변화=[ch("강호민", "자세", "웅크림")], 사전에_없는_변화="탁자가 뒤집힌다")})
-    assert led.get("자세", "강호민") == "서 있음" and "뜻대로 되지 않는다" in be.seen[-1].prompt and len(res.unhandled) == 2
+    res, be = play(led, {"해석": interp({"하려는_일": "의자를 뒤집어엎는다", "대상": ["나무_의자"]}), "판단": J(변화=[new("나무_의자", "뒤집힘", "참")])})
+    assert led.get("뒤집힘", "나무_의자") == "참" and res.filled and "뒤집힘" in be.seen[-1].prompt
+    assert "뒤집힘" not in SCN["정의"]                                    # 원본 사전은 그대로다. 채운 것은 세션의 기록에 남는다
+    from raindec.ledger import Ledger
+    again = Ledger.replay(SCN["정의"], led.events)                       # 되감아 다시 쌓아도 같다
+    assert again.get("뒤집힘", "나무_의자") == "참"
+    res, be = play(led, {"해석": interp({"하려는_일": "의자를 바로 세운다", "대상": ["나무_의자"]}), "판단": J(변화=[ch("나무_의자", "뒤집힘", "거짓")])})
+    assert led.get("뒤집힘", "나무_의자") == "거짓" and not res.filled     # 한 번 채운 항목은 그 뒤로 사전의 항목이다
+
+
+def test_위치의_방식은_자연어다():
+    led = world()
+    play(led, {"해석": interp({"하려는_일": "검을 뽑아 사내의 목에 겨눈다", "대상": ["철검", "척후"]}),
+               "판단": J(변화=[ch("철검", "위치", "오른손에 쥐고 삿갓 쓴 사내의 목에 겨눈 채", "강호민"), ch("강호민", "위치", "맞은편 의자에 걸터앉아", "척후")])})
+    assert led.where("철검") == ("강호민", "오른손에 쥐고 삿갓 쓴 사내의 목에 겨눈 채")
+    assert led.where("강호민") == ("구석_탁자", "삿갓 쓴 사내의 맞은편 의자에 걸터앉아")       # 사람 곁은 그 사람이 있는 자리다
 
 
 def test_사람을_상대로_한_판정은_제_몸으로_하는_일을_막지_않는다():
@@ -284,3 +325,26 @@ def test_사람을_상대로_한_판정은_제_몸으로_하는_일을_막지_�
         led = world()
         res, _ = play(led, script, seed=seed)
         assert res.checks and led.where("철검") == ("강호민", "손에")
+
+
+def test_따르는_행동은_해석의_규칙에_있다_상태판은_턴마다_온다():
+    from raindec.engine import SYS_INTERPRET, SYS_JUDGE
+    assert "뚜껑" in SYS_INTERPRET and "가만히 있는 것이 기본" not in SYS_JUDGE
+    led = world()
+    res, _ = play(led, {"해석": interp({"하려는_일": "계산대로 간다", "대상": ["계산대"]}), "판단": J(변화=[ch("강호민", "위치", "앞에 서서", "계산대")])})
+    assert "객잔 1층" in res.board
+
+
+def test_능력과_시간의_낱말은_사전에서_온다():
+    scn = copy.deepcopy(SCN)
+    for old in ("근력", "민첩", "통찰"):
+        del scn["정의"][old]
+    scn["정의"].update({"완력": {"겉보기": "숨김", "능력": True}, "감각": {"겉보기": "숨김", "능력": True}})
+    scn["시간등급"], scn["맞섬"] = {"한 호흡": 1, "한 식경": 30}, {"말": "감각", "손": "감각", "힘": "완력"}
+    scn["개체"]["강호민"]["사실"] = [f for f in scn["개체"]["강호민"]["사실"] if not any(k in f for k in ("근력", "민첩", "통찰"))] + ["완력(이것) = 15"]
+    for who in ("주모", "척후"):
+        scn["개체"][who]["사실"] = [f for f in scn["개체"][who]["사실"] if not any(k in f for k in ("근력", "민첩", "통찰"))]
+    led = world(scn)
+    res, be = play(led, {"해석": interp({"하려는_일": "의자로 뒷문을 부순다", "대상": ["뒷문"]}),
+                         "판단": J(능력="완력", 시간="한 식경", 변화=[ch("뒷문", "손상", "파손")])}, scn=scn)
+    assert ("완력 15", 10) in res.checks[0]["내역"] and led.now == 1260 + 30

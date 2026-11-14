@@ -76,8 +76,10 @@ def main():
             print(f"  [{res.kind}] {res.narration}")
         for c in res.checks:
             print(f"\n  └ 주사위 {c['주사위'][0]} + {c['주사위'][1]} = {c['합']}  (여유 {c['여유']}) → {c['정도']}")
-        if res.changed:
-            print("\n  · " + " / ".join(res.changed))
+        if res.board:
+            print(f"\n  ▣ {res.board}")
+        if res.filled:
+            print(f"  [채운 것] {res.filled}")
         won = sum(c.won for c in res.calls)
         t = res.timing
         print(f"\n  [측정] 되읽기 {t.get('되읽기', 0):.1f}초 · 버튼 {t.get('버튼', 0):.1f}초 · 첫 글자 {t.get('첫 글자', 0):.1f}초 · 전체 {t.get('전체', 0):.1f}초 · "
