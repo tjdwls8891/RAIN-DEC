@@ -22,10 +22,10 @@ from .scenario import in_plain_sight, perceive_scene
 TYPES = ["메타/규칙 입력", "관찰/조사/지식", "이동/운송", "물체/설비 조작", "자원/소유/거래", "제작/수리/건설",
          "신체/치료/생존", "공격/제압/피해", "방어/회피/보호", "환경/공간 변화", "의사소통/설득/기만", "은폐/위장/추적",
          "관계/소속/약속", "협력/지휘", "계획/준비/조건부행동", "장기과업/조직운용", "특수능력", "목표/선택/거부"]
-VERBS = ["살핀다", "뒤진다", "간다", "연다", "닫는다", "집는다", "놓는다", "준다", "말한다", "속인다", "설득한다",
+VERBS = ["살핀다", "뒤진다", "간다", "연다", "닫는다", "집는다", "꺼낸다", "놓는다", "준다", "말한다", "속인다", "설득한다",
          "위협한다", "공격한다", "기다린다", "그밖"]
 SOCIAL = ("속인다", "설득한다", "위협한다")
-MINUTES = {"살핀다": 1, "뒤진다": 3, "간다": 1, "연다": 1, "닫는다": 1, "집는다": 1, "놓는다": 1, "준다": 1,
+MINUTES = {"살핀다": 1, "뒤진다": 3, "간다": 1, "연다": 1, "닫는다": 1, "집는다": 1, "꺼낸다": 1, "놓는다": 1, "준다": 1,
            "말한다": 1, "속인다": 2, "설득한다": 3, "위협한다": 1, "공격한다": 1, "기다린다": 10, "그밖": 3}
 NONE, UNLISTED = "없음", "목록에_없는_것"
 
@@ -34,7 +34,7 @@ BASE = 52                                   # 능력 10, 보통 난이도, 무�
 DIFF = {"쉬움": 20, "약간 쉬움": 10, "보통": 0, "어려움": -15, "매우 어려움": -30, "극도로 어려움": -40}
 METHOD = {"매우 나쁨": -12, "나쁨": -6, "무난함": 0, "좋음": 6, "매우 좋음": 12}
 GUARD = {"작음": -5, "보통": -10, "큼": -20, "매우 큼": -30}     # 상대가 지키려는 것의 무게
-DEGREES = [(30, "큰 성공"), (10, "성공"), (1, "아슬한 성공"), (-9, "아슬한 실패"), (-29, "실패"), (-999, "큰 실패")]
+DEGREES = [(30, "큰 성공"), (10, "성공"), (1, "아슬한 성공"), (-9, "아슬한 실패"), (-39, "실패"), (-999, "큰 실패")]
 STAT = {"속인다": "통찰", "설득한다": "통찰", "위협한다": "근력", "공격한다": "민첩", "그밖": "민첩"}
 ATT_YES = ["따른다", "마지못해 따른다"]
 ATT_NO = ["얼버무린다", "되묻는다", "거절한다", "막아선다", "물러난다", "위협한다", "무시한다"]
@@ -49,6 +49,9 @@ SYS_INTERPRET = f"""너는 TRPG 엔진의 '해석' 단계다. 플레이어의 �
    - 거짓을 믿게 하려는 말은 "속인다", 무언가를 하게 하려는 말은 "설득한다", 겁을 주어 하게 하려는 것은 "위협한다", 그 밖의 말은 "말한다".
    - 무기를 겨누거나 해치겠다고 하며 무언가를 요구하는 것은 "공격한다"가 아니라 "위협한다"다. 실제로 치거나 베는 것만 "공격한다".
    - 용기(서랍, 자루)의 속을 보는 것은 "뒤진다", 겉을 보는 것은 "살핀다".
+   - 지닌 것을 손에 드는 것(검을 뽑는다, 배낭에서 꺼낸다)은 "꺼낸다".
+   - 하는_일에는 PC의 그 동작을 선언의 말 그대로 짧게 적는다("찻주전자를 주모 쪽으로 던진다"). 결과를 넣지 않는다.
+   - 상대는 그 동작이 향하는 둘째 것이다(누구에게 건네는가, 어디에 놓는가, 무엇에 던지는가). 없으면 "없음".
 3. 대상은 [PC가 가리킬 수 있는 것]의 이름에서 글자 그대로 고른다. 선언이 가리키는 것이 목록에 없으면 "{UNLISTED}"으로 적고 가리킨_말에 플레이어의 표현을 옮긴다. 대상이 없으면 "{NONE}".
 4. 그 행동 없이는 선언한 행동이 성립하지 않는 것(다가간다, 꺼낸다, 뚜껑을 연다)은 채워도 된다. 선언에 없는 선택(망설임, 멈춤, 살핌, 감정)은 절대 채우지 않는다.
 5. 플레이어는 PC의 생각·말·행동·의도만 정한다. 세계의 사실이나 결과를 단정한 부분("열어 보니 열쇠가 있다", "주모가 겁을 먹는다")은 그 부분을 시도로 바꿔 적고, 세계에_대한_단정에 원문을 옮긴다. 선언한 행동 그 자체는 단정이 아니다.
@@ -203,10 +206,11 @@ class Turn:
         # 개체의 내부 이름은 저작자의 말이라 진실이 묻어 있다("척후"). 해석에는 부름말만 준다.
         names = {label(self.work, e): e for e in reachable(self.work, self.pc)}
         targets = list(names) + [NONE, UNLISTED]
-        act = {"type": "OBJECT", "required": ["유형", "동작", "대상", "가리킨_말", "말", "요구"],
+        act = {"type": "OBJECT", "required": ["유형", "동작", "하는_일", "대상", "상대", "가리킨_말", "말", "요구"],
                "properties": {"유형": {"type": "STRING", "enum": TYPES}, "동작": {"type": "STRING", "enum": VERBS},
                               "대상": {"type": "STRING", "enum": targets}, "가리킨_말": {"type": "STRING"},
-                              "말": {"type": "STRING"}, "요구": {"type": "STRING"}}}
+                              "말": {"type": "STRING"}, "요구": {"type": "STRING"},
+                              "하는_일": {"type": "STRING"}, "상대": {"type": "STRING", "enum": targets}}}
         schema = {"type": "OBJECT", "required": ["행동", "내면", "세계에_대한_단정", "모호함", "되물음", "되읽기"],
                   "properties": {"행동": {"type": "ARRAY", "items": act}, "내면": {"type": "STRING"},
                                  "세계에_대한_단정": {"type": "STRING"}, "모호함": {"type": "BOOLEAN"},
@@ -218,6 +222,7 @@ class Turn:
             if a.get("동작") not in VERBS:
                 a["동작"] = "그밖"
             a["대상"] = names.get(a.get("대상"), a.get("대상") if a.get("대상") == NONE else UNLISTED)
+            a["상대"] = names.get(a.get("상대"), NONE)
         return out
 
     # ---- ②~⑤ 행동 하나 ----
@@ -229,16 +234,36 @@ class Turn:
         self.minutes += MINUTES[verb]
         w, pc = self.work, self.pc
         if tgt == UNLISTED:
-            self.did.append(f"{a.get('가리킨_말') or '무언가'}을(를) 찾는다.")
-            self.sensed.append(f"{a.get('가리킨_말') or '그것'}은(는) 보이지 않는다.")
-            self.res.unhandled.append(f"목록에 없는 대상: {a.get('가리킨_말')} ({verb})")
-            return False
+            said = a.get("가리킨_말") or "그것"
+            near = [e for e in reachable(w, pc) if not w.has_tag(e, "장소")]
+            names = {self.L(e): e for e in near}
+            absent, maybe = "여기에 없다", "저작되지 않았으나 이 장소에 있을 법하다"
+            q = {"key": "가리킨것", "text": f"플레이어가 '{said}'(이)라고 가리킨 것은 무엇인가. 이미 있는 것의 일부나 다른 이름이면 그것을 고른다. "
+                 f"고유한 물건(열쇠, 무기, 문서)이나 숨겨 둔 것은 '{maybe}'로 고르지 않는다",
+                 "schema": {"type": "STRING", "enum": list(names) + [maybe, absent]}, "default": absent}
+            if verb == "꺼낸다":                         # PC가 지닌 것은 장부가 안다. 없는 것을 꺼낼 수는 없다
+                which = absent
+                self.sensed.append(f"품과 짐을 더듬어 보지만 {said}은(는) 지니고 있지 않다.")
+            else:
+                which = self.judge(f"PC가 '{said}'을(를) 대상으로 {a.get('하는_일') or verb}.", [q])["가리킨것"]
+            if which in names:
+                a["대상"] = tgt = names[which]            # 자물쇠 → 뒷문. 그 일부를 대상으로 삼아 이어 간다
+            else:
+                self.did.append(f"{said}을(를) 찾는다.")
+                if verb == "꺼낸다":
+                    pass
+                elif which == absent:
+                    self.sensed.append(f"{said}은(는) 보이지 않는다.")
+                else:                                   # 확정의 사다리의 '채움'. 아직 없다. 세계에 대해 아무것도 전하지 않는다
+                    self.sensed.append(f"(엔진이 아직 '{said}'을(를) 다루지 못한다. 이 부분은 일어나지 않은 것으로 한다.)")
+                self.res.unhandled.append(f"목록에 없는 대상: {said} → {which} ({verb})")
+                return False
         if tgt != NONE:
             self.touched.add(tgt)
         name = self.L(tgt) if tgt != NONE else ""
 
         if verb == "간다":
-            return self.go(tgt)
+            return self.go(tgt, through=any(k in (a.get("하는_일") or "") for k in ("지나", "나간", "나가", "들어", "통해", "빠져")))
         if verb == "살핀다" and (tgt == NONE or w.has_tag(tgt, "장소")):
             here = w.place_of(pc)
             self.did.append(f"{self.L(here)} 안을 둘러본다.")
@@ -272,20 +297,118 @@ class Turn:
                 return True
         if verb in ("말한다",) + SOCIAL and tgt != NONE and w.has_tag(tgt, "인물"):
             return self.talk(a)
-        # 코드가 아직 다루지 못하는 행동: 세계를 바꾸지 않고, 한 일로만 서술에 넘긴다.
-        self.res.unhandled.append(f"다루지 못한 행동: {verb} → {tgt} / {a.get('가리킨_말')}")
-        mine = tgt == NONE or w.holder_of(tgt) == pc
-        what = a.get("가리킨_말") or verb
-        self.did.append(f"{(name + ': ') if name else ''}{what}" + ("" if mine else " (시도. 결과는 정해지지 않았다)"))
-        return mine                                    # 제 몸과 제 것으로 하는 몸짓은 뒤의 행동을 막지 않는다
+        if verb == "꺼낸다" and tgt != NONE and w.holder_of(tgt) == pc:
+            self.set(LOC, tgt, "손에", pc)
+            self.did.append(f"{name}을(를) 꺼내 손에 든다.")
+            return True
+        what = a.get("하는_일") or a.get("가리킨_말") or verb
+        if tgt == NONE:                                # 제 몸으로 하는 몸짓: 세계를 바꾸지 않고 지나간다
+            self.did.append(what)
+            return True
+        if w.has_tag(tgt, "인물"):                      # 사람의 몸을 건드리는 일(싸움, 붙잡기)은 아직 없다
+            self.res.unhandled.append(f"다루지 못한 행동: {what} → {tgt}")
+            self.did.append(f"{what} (시도. 결과는 정해지지 않았다)")
+            return False
+        return self.generic(a, what)
 
-    def go(self, tgt: str) -> bool:
+    def generic(self, a: dict, what: str) -> bool:
+        """코드가 모르는 행동. 무엇이 바뀌는가를 코드가 후보로 내고, 판단이 고른다."""
+        w, pc = self.work, self.pc
+        tgt, other = a["대상"], a.get("상대", NONE)
+        here, name = w.place_of(pc), self.L(tgt)
+        fx: dict[str, list[dict]] = {}
+
+        def put(lbl, *chs):
+            fx[josa(lbl)] = list(chs)
+
+        def loc(x, how, y):
+            return {"op": "set", "attr": LOC, "subj": x, "obj": y, "value": how}
+
+        def flag(attr, x, v):
+            return {"op": "set", "attr": attr, "subj": x, "obj": None, "value": v}
+        if w.has_tag(tgt, "물건") and not w.has_tag(tgt, "용기") and w.holder_of(tgt) in (None, pc):
+            if w.where(tgt) != (pc, "손에"):
+                put(f"{name}이(가) PC의 손에 들린다", loc(tgt, "손에", pc))
+            put(f"{name}이(가) 바닥에 놓인다(떨어진다)", loc(tgt, "안에", here))
+            if other not in (NONE, tgt, pc):
+                if w.has_tag(other, "인물"):
+                    put(f"{name}이(가) {self.L(other)}의 손에 넘어간다", loc(tgt, "손에", other))
+                    put(f"{name}이(가) {self.L(other)} 곁의 바닥에 떨어진다", loc(tgt, "안에", here))
+                elif w.has_tag(other, "용기"):
+                    put(f"{name}이(가) {self.L(other)} 안에 들어간다", loc(tgt, "안에", other))
+                elif w.has_tag(other, "지점"):
+                    put(f"{name}이(가) {self.L(other)}에 놓인다", loc(tgt, "위에", other))
+        if w.has_tag(tgt, "물건") or w.has_tag(tgt, "통로"):
+            put(f"{name}이(가) 흠이 난다", flag("손상", tgt, "흠"))
+            put(f"{name}이(가) 부서진다", flag("손상", tgt, "파손"))
+        if w.has_tag(tgt, "통로") or w.has_tag(tgt, "용기"):
+            if w.get("잠김", tgt) == "참":
+                put(f"{name}의 잠금이 풀린다", flag("잠김", tgt, "거짓"))
+            put(f"{name}이(가) 열린다", flag("열림", tgt, "참"))
+            put(f"{name}이(가) 닫힌다", flag("열림", tgt, "거짓"))
+        nothing, stay = "바뀌는 것이 없다", "있던 자리 그대로"
+        moves = [k for k, v in fx.items() if v[0]["attr"] == LOC]
+        states = [k for k in fx if k not in moves]
+        others = [e for e in w.present_in(here) if w.has_tag(e, "인물") and e != pc][:2]
+        qs = [{"key": "성립", "text": "이 행동은 굴리지 않아도 뻔히 되는가, 판정이 필요한가, 이 상황에서 될 수 없는가",
+               "schema": {"type": "STRING", "enum": ["뻔히 된다", "판정이 필요하다", "될 수 없다"]}, "default": "판정이 필요하다"},
+              {"key": "능력", "text": "판정한다면 어느 능력을 쓰는 일인가", "schema": {"type": "STRING", "enum": ["근력", "민첩", "통찰"]}, "default": "민첩"},
+              {"key": "난이도", "text": "판정한다면 난이도", "schema": {"type": "STRING", "enum": list(DIFF)}, "default": "보통"},
+              {"key": "방법", "text": "PC가 택한 방식이 이 일에 얼마나 맞는가", "schema": {"type": "STRING", "enum": list(METHOD)}, "default": "무난함"},
+              {"key": "되면_자리", "text": f"이 행동이 뜻대로 되면 {name}은(는) 끝에 어디에 있는가. 하나만",
+               "schema": {"type": "STRING", "enum": moves + [stay]}, "default": stay},
+              {"key": "되면_바뀌는것", "text": "자리 말고, 뜻대로 되면 바뀌는 것을 후보에서 모두 고른다. PC가 뜻한 것만. 더 일어날 법한 일을 보태지 않는다",
+               "schema": {"type": "ARRAY", "items": {"type": "STRING", "enum": states + [nothing]}}, "default": [nothing]},
+              {"key": "소리", "text": "이 행동에서 나는 소리", "schema": {"type": "STRING", "enum": ["나지 않는다", "작게 난다", "크게 난다"]}, "default": "작게 난다"},
+              {"key": "담기는가", "text": "PC가 뜻한 결과의 핵심이 위 후보(자리, 바뀌는 것)로 담기는가. 곁가지(튀는 물, 먼지)는 따지지 않는다",
+               "schema": {"type": "STRING", "enum": ["담긴다", "핵심이 후보에 없다"]}, "default": "담긴다"},
+              {"key": "후보에_없는_변화", "text": "후보에 없는 변화가 있으면 한 줄로. 없으면 빈 칸 (저작자만 본다)",
+               "schema": {"type": "STRING"}, "default": ""}]
+        for o in others:
+            qs.append({"key": f"곁:{o}", "text": f"이것을 보고 들은 {self.L(o)}의 반응",
+                       "schema": {"type": "OBJECT", "required": ["태도", "말"], "properties": {"태도": {"type": "STRING", "enum": ATT_WATCH}, "말": {"type": "STRING"}}},
+                       "default": {"태도": "지켜본다", "말": ""}})
+        ans = self.judge(f"PC가 한다: {what}. 대상: {name}" + (f", 상대: {self.L(other)}" if other != NONE else ""), qs)
+        if ans["후보에_없는_변화"]:
+            self.res.unhandled.append(f"후보에 없는 변화: {what} → {ans['후보에_없는_변화']}")
+        picked = ([ans["되면_자리"]] if ans["되면_자리"] in fx else []) + [x for x in dict.fromkeys(ans["되면_바뀌는것"]) if x in fx]
+        self.did.append(f"{what} (하려 한 일. 된 것은 [지각한 것]에 적힌 것뿐이다)")
+        ok = True
+        if ans["담기는가"] != "담긴다":
+            # 장부가 담지 못하는 결과는 일어난 것으로 전하지 않는다. 전한 것은 사실이어야 한다.
+            self.sensed.append("뜻대로 되지 않는다.")
+            self.res.unhandled.append(f"엔진이 담지 못한 행동: {what}")
+            ok = False
+        elif ans["성립"] == "될 수 없다":
+            self.sensed.append("뜻대로 되지 않는다. 지금 이 자리에서는 할 수 없는 일이다.")
+            ok = False
+        elif ans["성립"] == "판정이 필요하다":
+            c = self.roll(what, [(f"난이도: {ans['난이도']}", DIFF[ans["난이도"]])], ans["방법"],
+                          stake_yes="뜻대로 된다" + (": " + ", ".join(picked) if picked else ""),
+                          stake_no="뜻대로 되지 않는다. 크게 어긋나면 탈이 난다", stat=ans["능력"])
+            ok = c["성공"]
+            if not ok:
+                self.sensed.append("뜻대로 되지 않는다.")
+        if ok:
+            for lbl in picked:
+                if all(self.put(ch) for ch in fx[lbl]):
+                    self.sensed.append(lbl.replace("PC의", "당신의") + ".")
+        if ans["소리"] == "크게 난다":
+            self.sensed.append("큰 소리가 난다.")
+        for o in others:
+            ro = ans[f"곁:{o}"]
+            self.touched.add(o)
+            if ro["태도"] != "무시한다" or ro.get("말"):
+                self.sensed.append(f"{self.L(o)}의 태도: {ro['태도']}(제자리에서)." + (f" {self.L(o)}의 말: \"{clean(ro['말'])}\"" if ro.get("말") else ""))
+        return ok and not any(ans[f"곁:{o}"]["태도"] in STOPPING for o in others)
+
+    def go(self, tgt: str, through: bool = True) -> bool:
         w, pc = self.work, self.pc
         if tgt == NONE:
             return False
         here = w.place_of(pc)
         dest = tgt
-        if w.has_tag(tgt, "통로"):
+        if w.has_tag(tgt, "통로") and through:        # 지나가려는 것일 때만 너머로. 아니면 문 앞으로 다가간다
             others = [p for p in (w.get("잇는다", tgt) or []) if p != here]
             dest = others[0] if others else tgt
         if dest == here:
@@ -471,10 +594,11 @@ class Turn:
         return ans
 
     # ---- ④ 판정 ----
-    def roll(self, verb: str, difficulty: list[tuple[str, int]], method: str, stake_yes: str, stake_no: str) -> dict:
+    def roll(self, verb: str, difficulty: list[tuple[str, int]], method: str, stake_yes: str, stake_no: str,
+             stat: str | None = None) -> dict:
         """기준값 = 52 + 능력 + (숙련 + 장비 + 상태: 아직 없음) + 방법 + 난이도. 굴린 합이 기준값보다 작으면 성공."""
         w = self.work
-        stat = STAT.get(verb, "민첩")
+        stat = stat or STAT.get(verb, "민첩")
         mine = w.get(stat, self.pc) if isinstance(w.get(stat, self.pc), int) else 10
         parts = [("기본", BASE), (f"{stat} {mine}", 2 * (mine - 10)), (f"방법: {method}", METHOD[method])] + difficulty
         target = sum(v for _, v in parts)

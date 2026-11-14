@@ -18,7 +18,7 @@ def world(seed=1):
 
 
 def interp(*acts, **over):
-    return {"행동": [{"유형": "물체/설비 조작", "가리킨_말": "", "말": "", "요구": "", **a} for a in acts],
+    return {"행동": [{"유형": "물체/설비 조작", "가리킨_말": "", "말": "", "요구": "", "하는_일": "", "상대": "없음", **a} for a in acts],
             "내면": "", "세계에_대한_단정": "", "모호함": False, "되물음": "", "되읽기": "…하려 한다.", **over}
 
 
@@ -28,8 +28,9 @@ def named(led, script):
     it = script.get("해석")
     if isinstance(it, dict):
         for a in it["행동"]:
-            if a["대상"] in led.entities:
-                a["대상"] = label(led, a["대상"])
+            for k in ("대상", "상대"):
+                if a[k] in led.entities:
+                    a[k] = label(led, a[k])
     return script
 
 
@@ -119,8 +120,21 @@ def test_해석이_실패하면_아무것도_바뀌지_않는다():
 def test_목록에_없는_대상은_만들어지지_않는다():
     led = world()
     ents = set(led.entities)
-    res, _ = play(led, {"해석": interp({"동작": "집는다", "대상": "목록에_없는_것", "가리킨_말": "들보 위의 암기 주머니"})})
-    assert set(led.entities) == ents and res.unhandled
+    res, be = play(led, {"해석": interp({"동작": "집는다", "대상": "목록에_없는_것", "가리킨_말": "들보 위의 암기 주머니"}), "판단": {"가리킨것": "여기에 없다"}})
+    assert set(led.entities) == ents and res.unhandled and "보이지 않는다" in be.seen[-1].prompt
+
+
+def test_있는_것의_일부를_가리키면_그것으로_잇는다():
+    led = world()
+    seen = {}
+
+    def judge(prompt, schema):
+        if "가리킨것" in schema["properties"]:
+            return {"가리킨것": "뒷문"}
+        seen["대상"] = "대상: 뒷문" in prompt
+        return {**GEN, "성립": "뻔히 된다", "되면_자리": "있던 자리 그대로", "되면_바뀌는것": ["뒷문의 잠금이 풀린다", "뒷문이 흠이 난다"]}
+    res, be = play(led, {"해석": interp({"동작": "그밖", "하는_일": "자물쇠를 내리쳐 부순다", "대상": "목록에_없는_것", "가리킨_말": "자물쇠"}), "판단": judge})
+    assert seen["대상"] and led.get("잠김", "뒷문") == "거짓" and led.get("손상", "뒷문") == "흠"
 
 
 def test_모호하면_되묻고_세계는_그대로다():
@@ -141,7 +155,7 @@ def test_닿는것을_못_고르면_가장_무거운_것으로_본다():
 def test_정도는_여유로_갈린다():
     from raindec.engine import DEGREES
     name = lambda m: next(n for f, n in (DEGREES[:3] if m > 0 else DEGREES[3:]) if m >= f)
-    assert [name(m) for m in (30, 29, 10, 9, 1, 0, -9, -10, -29, -30)] == [
+    assert [name(m) for m in (30, 29, 10, 9, 1, 0, -9, -10, -39, -40)] == [
         "큰 성공", "성공", "성공", "아슬한 성공", "아슬한 성공", "아슬한 실패", "아슬한 실패", "실패", "실패", "큰 실패"]
 
 
@@ -158,3 +172,52 @@ def test_말에_든_요구가_지키려는_것에_닿으면_굴린다():
     res, be = play(world(), {"해석": interp({**act, "말": "저 사내는 누구요?", "요구": ""}),
                              "판단": {**base, "닿는것": "흑풍채 두목이 동생이라는 것", "말의_참거짓": "참말", "실패시": {"태도": "얼버무린다", "말": "손님이지."}}})
     assert not res.checks and "얼버무린다" in be.seen[-1].prompt
+
+
+GEN = {"담기는가": "담긴다", "성립": "판정이 필요하다", "능력": "민첩", "난이도": "보통", "방법": "무난함", "소리": "크게 난다", "후보에_없는_변화": "",
+       "곁:주모": {"태도": "지켜본다", "말": ""}, "곁:척후": {"태도": "지켜본다", "말": ""}}
+
+
+def test_모르는_행동은_후보에서_고른_변화만_일으킨다():
+    act = {"동작": "그밖", "하는_일": "찻주전자를 주모에게 던진다", "대상": "찻주전자", "상대": "주모"}
+    for seed in range(12):
+        led = world()
+        ents = set(led.entities)
+        judge = {**GEN, "되면_자리": "있던 자리 그대로", "되면_바뀌는것": ["찻주전자가 부서진다", "주모가 크게 다친다", "찻주전자가 금으로 변한다"]}
+        res, be = play(led, {"해석": interp(dict(act)), "판단": judge}, seed=seed)
+        assert set(led.entities) == ents and res.checks[0]["기준"] == 52 + 2 * (14 - 10)
+        if res.checks[0]["성공"]:      # 후보 밖의 답이 섞이면 그 물음은 기본값(바뀌는 것 없음)
+            assert led.get("손상", "찻주전자") == "없음"
+    led = world()
+    judge = {**GEN, "성립": "뻔히 된다", "되면_자리": "찻주전자가 바닥에 놓인다(떨어진다)", "되면_바뀌는것": ["찻주전자가 부서진다"]}
+    res, be = play(led, {"해석": interp(dict(act)), "판단": judge})
+    assert not res.checks and led.get("손상", "찻주전자") == "파손" and led.where("찻주전자") == ("객잔_1층", "안에")
+    assert "큰 소리가 난다" in be.seen[-1].prompt
+
+
+def test_지닌_것을_꺼내는_일은_판단_없이():
+    led = world()
+    res, be = play(led, {"해석": interp({"동작": "꺼낸다", "대상": "철검"})})
+    assert led.where("철검") == ("강호민", "손에") and not res.judged
+
+
+def test_장부가_담지_못하는_결과는_일어난_것으로_전하지_않는다():
+    led = world()
+    judge = {**GEN, "성립": "뻔히 된다", "되면_자리": "찻주전자가 PC의 손에 들린다", "되면_바뀌는것": [], "담기는가": "핵심이 후보에 없다", "후보에_없는_변화": "찻주전자가 들보 위에 놓인다"}
+    res, be = play(led, {"해석": interp({"동작": "그밖", "하는_일": "찻주전자를 들보 위에 올려 둔다", "대상": "찻주전자"}), "판단": judge})
+    assert led.where("찻주전자") == ("창가", "위에") and res.unhandled and "뜻대로 되지 않는다" in be.seen[-1].prompt
+
+
+def test_문으로_가는_것은_지나가는_것이_아니다():
+    led = world()
+    play(led, {"해석": interp({"동작": "간다", "대상": "창고문", "하는_일": "창고문 앞으로 간다"})})
+    assert led.place_of("강호민") == "객잔_1층"
+    play(led, {"해석": interp({"동작": "간다", "대상": "창고문", "하는_일": "창고문을 지나 들어간다"})})
+    assert led.place_of("강호민") == "객잔_창고"
+
+
+def test_지니지_않은_것은_꺼낼_수_없다():
+    led = world()
+    ents = set(led.entities)
+    res, be = play(led, {"해석": interp({"동작": "꺼낸다", "대상": "목록에_없는_것", "가리킨_말": "관아의 패"})})
+    assert set(led.entities) == ents and not res.judged and "지니고 있지 않다" in be.seen[-1].prompt
